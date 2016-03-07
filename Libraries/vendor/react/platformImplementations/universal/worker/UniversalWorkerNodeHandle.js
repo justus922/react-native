@@ -2,9 +2,9 @@
  * @providesModule UniversalWorkerNodeHandle
  */
 
-var ReactIOSTagHandles = require('ReactIOSTagHandles');
+var ReactNativeTagHandles = require('ReactNativeTagHandles');
 
-var invariant = require('invariant');
+var invariant = require('fbjs/lib/invariant');
 
 var UniversalWorkerNodeHandle = {
   getRootNodeID: function(nodeHandle) {
@@ -12,7 +12,7 @@ var UniversalWorkerNodeHandle = {
       nodeHandle !== undefined && nodeHandle !== null && nodeHandle !== 0,
       'No node handle defined'
     );
-    return ReactIOSTagHandles.tagToRootNodeID[nodeHandle];
+    return ReactNativeTagHandles.tagToRootNodeID[nodeHandle];
   }
 };
 

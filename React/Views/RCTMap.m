@@ -11,6 +11,8 @@
 
 #import "RCTEventDispatcher.h"
 #import "RCTLog.h"
+#import "RCTMapAnnotation.h"
+#import "RCTMapOverlay.h"
 #import "RCTUtils.h"
 
 const CLLocationDegrees RCTMapDefaultSpan = 0.005;
@@ -21,13 +23,15 @@ const CGFloat RCTMapZoomBoundBuffer = 0.01;
 {
   UIView *_legalLabel;
   CLLocationManager *_locationManager;
+  NSMutableArray<UIView *> *_reactSubviews;
 }
 
 - (instancetype)init
 {
   if ((self = [super init])) {
 
-    _hasStartedLoading = NO;
+    _hasStartedRendering = NO;
+    _reactSubviews = [NSMutableArray new];
 
     // Find Apple link label
     for (UIView *subview in self.subviews) {
@@ -47,9 +51,19 @@ const CGFloat RCTMapZoomBoundBuffer = 0.01;
   [_regionChangeObserveTimer invalidate];
 }
 
-- (void)reactSetFrame:(CGRect)frame
+- (void)insertReactSubview:(UIView *)subview atIndex:(NSInteger)atIndex
 {
-  self.frame = frame;
+  [_reactSubviews insertObject:subview atIndex:atIndex];
+}
+
+- (void)removeReactSubview:(UIView *)subview
+{
+  [_reactSubviews removeObject:subview];
+}
+
+- (NSArray<UIView *> *)reactSubviews
+{
+  return _reactSubviews;
 }
 
 - (void)layoutSubviews
@@ -80,16 +94,12 @@ const CGFloat RCTMapZoomBoundBuffer = 0.01;
 {
   if (self.showsUserLocation != showsUserLocation) {
     if (showsUserLocation && !_locationManager) {
-      _locationManager = [[CLLocationManager alloc] init];
+      _locationManager = [CLLocationManager new];
       if ([_locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
         [_locationManager requestWhenInUseAuthorization];
       }
     }
     super.showsUserLocation = showsUserLocation;
-
-    // If it needs to show user location, force map view centered
-    // on user's current location on user location updates
-    _followUserLocation = showsUserLocation;
   }
 }
 
@@ -112,11 +122,103 @@ const CGFloat RCTMapZoomBoundBuffer = 0.01;
   [super setRegion:region animated:animated];
 }
 
-- (void)setAnnotations:(MKShapeArray *)annotations
+// TODO: this doesn't preserve order. Should it? If so we should change the
+// algorithm. If not, it would be more efficient to use an NSSet
+- (void)setAnnotations:(NSArray<RCTMapAnnotation *> *)annotations
 {
-  [self removeAnnotations:self.annotations];
-  if (annotations.count) {
-    [self addAnnotations:annotations];
+  NSMutableArray<NSString *> *newAnnotationIDs = [NSMutableArray new];
+  NSMutableArray<RCTMapAnnotation *> *annotationsToDelete = [NSMutableArray new];
+  NSMutableArray<RCTMapAnnotation *> *annotationsToAdd = [NSMutableArray new];
+
+  for (RCTMapAnnotation *annotation in annotations) {
+    if (![annotation isKindOfClass:[RCTMapAnnotation class]]) {
+      continue;
+    }
+
+    [newAnnotationIDs addObject:annotation.identifier];
+
+    // If the current set does not contain the new annotation, mark it to add
+    if (![_annotationIDs containsObject:annotation.identifier]) {
+      [annotationsToAdd addObject:annotation];
+    }
+  }
+
+  for (RCTMapAnnotation *annotation in self.annotations) {
+    if (![annotation isKindOfClass:[RCTMapAnnotation class]]) {
+      continue;
+    }
+
+    // If the new set does not contain an existing annotation, mark it to delete
+    if (![newAnnotationIDs containsObject:annotation.identifier]) {
+      [annotationsToDelete addObject:annotation];
+    }
+  }
+
+  if (annotationsToDelete.count) {
+    [self removeAnnotations:(NSArray<id<MKAnnotation>> *)annotationsToDelete];
+  }
+
+  if (annotationsToAdd.count) {
+    [self addAnnotations:(NSArray<id<MKAnnotation>> *)annotationsToAdd];
+  }
+
+  self.annotationIDs = newAnnotationIDs;
+}
+
+// TODO: this doesn't preserve order. Should it? If so we should change the
+// algorithm. If not, it would be more efficient to use an NSSet
+- (void)setOverlays:(NSArray<RCTMapOverlay *> *)overlays
+{
+  NSMutableArray *newOverlayIDs = [NSMutableArray new];
+  NSMutableArray *overlaysToDelete = [NSMutableArray new];
+  NSMutableArray *overlaysToAdd = [NSMutableArray new];
+
+  for (RCTMapOverlay *overlay in overlays) {
+    if (![overlay isKindOfClass:[RCTMapOverlay class]]) {
+      continue;
+    }
+
+    [newOverlayIDs addObject:overlay.identifier];
+
+    // If the current set does not contain the new annotation, mark it to add
+    if (![_annotationIDs containsObject:overlay.identifier]) {
+      [overlaysToAdd addObject:overlay];
+    }
+  }
+
+  for (RCTMapOverlay *overlay in self.overlays) {
+    if (![overlay isKindOfClass:[RCTMapOverlay class]]) {
+      continue;
+    }
+
+    // If the new set does not contain an existing annotation, mark it to delete
+    if (![newOverlayIDs containsObject:overlay.identifier]) {
+      [overlaysToDelete addObject:overlay];
+    }
+  }
+
+  if (overlaysToDelete.count) {
+    [self removeOverlays:(NSArray<id<MKOverlay>> *)overlaysToDelete];
+  }
+
+  if (overlaysToAdd.count) {
+    [self addOverlays:(NSArray<id<MKOverlay>> *)overlaysToAdd
+                level:MKOverlayLevelAboveRoads];
+  }
+
+  self.overlayIDs = newOverlayIDs;
+}
+
+- (BOOL)showsCompass {
+  if ([MKMapView instancesRespondToSelector:@selector(showsCompass)]) {
+    return super. showsCompass;
+  }
+  return NO;
+}
+
+- (void)setShowsCompass:(BOOL)showsCompass {
+  if ([MKMapView instancesRespondToSelector:@selector(setShowsCompass:)]) {
+    super.showsCompass = showsCompass;
   }
 }
 

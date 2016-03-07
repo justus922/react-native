@@ -28,22 +28,32 @@ typedef NS_ENUM(NSInteger, RCTPositionErrorCode) {
 #define RCT_DEFAULT_LOCATION_ACCURACY kCLLocationAccuracyHundredMeters
 
 typedef struct {
-  NSTimeInterval timeout;
-  NSTimeInterval maximumAge;
-  CLLocationAccuracy accuracy;
+  double timeout;
+  double maximumAge;
+  double accuracy;
+  double distanceFilter;
 } RCTLocationOptions;
 
-static RCTLocationOptions RCTLocationOptionsWithJSON(id json)
+@implementation RCTConvert (RCTLocationOptions)
+
++ (RCTLocationOptions)RCTLocationOptions:(id)json
 {
-  NSDictionary *options = [RCTConvert NSDictionary:json];
+  NSDictionary<NSString *, id> *options = [RCTConvert NSDictionary:json];
+
+  double distanceFilter = options[@"distanceFilter"] == NULL ? RCT_DEFAULT_LOCATION_ACCURACY
+    : [RCTConvert double:options[@"distanceFilter"]] ?: kCLDistanceFilterNone;
+
   return (RCTLocationOptions){
     .timeout = [RCTConvert NSTimeInterval:options[@"timeout"]] ?: INFINITY,
     .maximumAge = [RCTConvert NSTimeInterval:options[@"maximumAge"]] ?: INFINITY,
-    .accuracy = [RCTConvert BOOL:options[@"enableHighAccuracy"]] ? kCLLocationAccuracyBest : RCT_DEFAULT_LOCATION_ACCURACY
+    .accuracy = [RCTConvert BOOL:options[@"enableHighAccuracy"]] ? kCLLocationAccuracyBest : RCT_DEFAULT_LOCATION_ACCURACY,
+    .distanceFilter = distanceFilter
   };
 }
 
-static NSDictionary *RCTPositionError(RCTPositionErrorCode code, NSString *msg /* nil for default */)
+@end
+
+static NSDictionary<NSString *, id> *RCTPositionError(RCTPositionErrorCode code, NSString *msg /* nil for default */)
 {
   if (!msg) {
     switch (code) {
@@ -81,7 +91,9 @@ static NSDictionary *RCTPositionError(RCTPositionErrorCode code, NSString *msg /
 
 - (void)dealloc
 {
-  [_timeoutTimer invalidate];
+  if (_timeoutTimer.valid) {
+    [_timeoutTimer invalidate];
+  }
 }
 
 @end
@@ -93,8 +105,8 @@ static NSDictionary *RCTPositionError(RCTPositionErrorCode code, NSString *msg /
 @implementation RCTLocationObserver
 {
   CLLocationManager *_locationManager;
-  NSDictionary *_lastLocationEvent;
-  NSMutableArray *_pendingRequests;
+  NSDictionary<NSString *, id> *_lastLocationEvent;
+  NSMutableArray<RCTLocationRequest *> *_pendingRequests;
   BOOL _observingLocation;
   RCTLocationOptions _observerOptions;
 }
@@ -105,30 +117,33 @@ RCT_EXPORT_MODULE()
 
 #pragma mark - Lifecycle
 
-- (instancetype)init
-{
-  if ((self = [super init])) {
-
-    _locationManager = [[CLLocationManager alloc] init];
-    _locationManager.distanceFilter = RCT_DEFAULT_LOCATION_ACCURACY;
-    _locationManager.delegate = self;
-
-    _pendingRequests = [[NSMutableArray alloc] init];
-  }
-  return self;
-}
-
 - (void)dealloc
 {
   [_locationManager stopUpdatingLocation];
+  _locationManager.delegate = nil;
+}
+
+- (dispatch_queue_t)methodQueue
+{
+  return dispatch_get_main_queue();
 }
 
 #pragma mark - Private API
 
 - (void)beginLocationUpdates
 {
+  if (!_locationManager) {
+    _locationManager = [CLLocationManager new];
+    _locationManager.distanceFilter = _observerOptions.distanceFilter;
+    _locationManager.delegate = self;
+  }
+
   // Request location access permission
-  if ([_locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
+  if ([[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSLocationAlwaysUsageDescription"] &&
+    [_locationManager respondsToSelector:@selector(requestAlwaysAuthorization)]) {
+    [_locationManager requestAlwaysAuthorization];
+  } else if ([[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSLocationWhenInUseUsageDescription"] &&
+    [_locationManager respondsToSelector:@selector(requestWhenInUseAuthorization)]) {
     [_locationManager requestWhenInUseAuthorization];
   }
 
@@ -153,41 +168,33 @@ RCT_EXPORT_MODULE()
 
 #pragma mark - Public API
 
-RCT_EXPORT_METHOD(startObserving:(NSDictionary *)optionsJSON)
+RCT_EXPORT_METHOD(startObserving:(RCTLocationOptions)options)
 {
   [self checkLocationConfig];
 
-  dispatch_async(dispatch_get_main_queue(), ^{
+  // Select best options
+  _observerOptions = options;
+  for (RCTLocationRequest *request in _pendingRequests) {
+    _observerOptions.accuracy = MIN(_observerOptions.accuracy, request.options.accuracy);
+  }
 
-    // Select best options
-    _observerOptions = RCTLocationOptionsWithJSON(optionsJSON);
-    for (RCTLocationRequest *request in _pendingRequests) {
-      _observerOptions.accuracy = MIN(_observerOptions.accuracy, request.options.accuracy);
-    }
-
-    _locationManager.desiredAccuracy = _observerOptions.accuracy;
-    [self beginLocationUpdates];
-    _observingLocation = YES;
-
-  });
+  _locationManager.desiredAccuracy = _observerOptions.accuracy;
+  [self beginLocationUpdates];
+  _observingLocation = YES;
 }
 
 RCT_EXPORT_METHOD(stopObserving)
 {
-  dispatch_async(dispatch_get_main_queue(), ^{
+  // Stop observing
+  _observingLocation = NO;
 
-    // Stop observing
-    _observingLocation = NO;
-
-    // Stop updating if no pending requests
-    if (_pendingRequests.count == 0) {
-      [_locationManager stopUpdatingLocation];
-    }
-
-  });
+  // Stop updating if no pending requests
+  if (_pendingRequests.count == 0) {
+    [_locationManager stopUpdatingLocation];
+  }
 }
 
-RCT_EXPORT_METHOD(getCurrentPosition:(NSDictionary *)optionsJSON
+RCT_EXPORT_METHOD(getCurrentPosition:(RCTLocationOptions)options
                   withSuccessCallback:(RCTResponseSenderBlock)successBlock
                   errorCallback:(RCTResponseSenderBlock)errorBlock)
 {
@@ -198,64 +205,61 @@ RCT_EXPORT_METHOD(getCurrentPosition:(NSDictionary *)optionsJSON
     return;
   }
 
-  dispatch_async(dispatch_get_main_queue(), ^{
-
-    if (![CLLocationManager locationServicesEnabled]) {
-      if (errorBlock) {
-        errorBlock(@[
-          RCTPositionError(RCTPositionErrorUnavailable, @"Location services disabled.")
-        ]);
-        return;
-      }
-    }
-
-    if ([CLLocationManager authorizationStatus] == kCLAuthorizationStatusDenied) {
-      if (errorBlock) {
-        errorBlock(@[
-          RCTPositionError(RCTPositionErrorDenied, nil)
-        ]);
-        return;
-      }
-    }
-
-    // Get options
-    RCTLocationOptions options = RCTLocationOptionsWithJSON(optionsJSON);
-
-    // Check if previous recorded location exists and is good enough
-    if (_lastLocationEvent &&
-        CFAbsoluteTimeGetCurrent() - [RCTConvert NSTimeInterval:_lastLocationEvent[@"timestamp"]] < options.maximumAge &&
-        [_lastLocationEvent[@"coords"][@"accuracy"] doubleValue] >= options.accuracy) {
-
-      // Call success block with most recent known location
-      successBlock(@[_lastLocationEvent]);
+  if (![CLLocationManager locationServicesEnabled]) {
+    if (errorBlock) {
+      errorBlock(@[
+        RCTPositionError(RCTPositionErrorUnavailable, @"Location services disabled.")
+      ]);
       return;
     }
+  }
 
-    // Create request
-    RCTLocationRequest *request = [[RCTLocationRequest alloc] init];
-    request.successBlock = successBlock;
-    request.errorBlock = errorBlock ?: ^(NSArray *args){};
-    request.options = options;
-    request.timeoutTimer = [NSTimer scheduledTimerWithTimeInterval:options.timeout
-                                                            target:self
-                                                          selector:@selector(timeout:)
-                                                          userInfo:request
-                                                           repeats:NO];
-    [_pendingRequests addObject:request];
+  if ([CLLocationManager authorizationStatus] == kCLAuthorizationStatusDenied) {
+    if (errorBlock) {
+      errorBlock(@[
+        RCTPositionError(RCTPositionErrorDenied, nil)
+      ]);
+      return;
+    }
+  }
 
-    // Configure location manager and begin updating location
-    _locationManager.desiredAccuracy = MIN(_locationManager.desiredAccuracy, options.accuracy);
-    [self beginLocationUpdates];
+  // Check if previous recorded location exists and is good enough
+  if (_lastLocationEvent &&
+      CFAbsoluteTimeGetCurrent() - [RCTConvert NSTimeInterval:_lastLocationEvent[@"timestamp"]] < options.maximumAge &&
+      [_lastLocationEvent[@"coords"][@"accuracy"] doubleValue] >= options.accuracy) {
 
-  });
+    // Call success block with most recent known location
+    successBlock(@[_lastLocationEvent]);
+    return;
+  }
+
+  // Create request
+  RCTLocationRequest *request = [RCTLocationRequest new];
+  request.successBlock = successBlock;
+  request.errorBlock = errorBlock ?: ^(NSArray *args){};
+  request.options = options;
+  request.timeoutTimer = [NSTimer scheduledTimerWithTimeInterval:options.timeout
+                                                          target:self
+                                                        selector:@selector(timeout:)
+                                                        userInfo:request
+                                                         repeats:NO];
+  if (!_pendingRequests) {
+    _pendingRequests = [NSMutableArray new];
+  }
+  [_pendingRequests addObject:request];
+
+  // Configure location manager and begin updating location
+  _locationManager.desiredAccuracy = MIN(_locationManager.desiredAccuracy, options.accuracy);
+  [self beginLocationUpdates];
 }
 
 #pragma mark - CLLocationManagerDelegate
 
-- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray *)locations
+- (void)locationManager:(CLLocationManager *)manager
+     didUpdateLocations:(NSArray<CLLocation *> *)locations
 {
   // Create event
-  CLLocation *location = [locations lastObject];
+  CLLocation *location = locations.lastObject;
   _lastLocationEvent = @{
     @"coords": @{
       @"latitude": @(location.coordinate.latitude),
@@ -266,7 +270,7 @@ RCT_EXPORT_METHOD(getCurrentPosition:(NSDictionary *)optionsJSON
       @"heading": @(location.course),
       @"speed": @(location.speed),
     },
-    @"timestamp": @(CFAbsoluteTimeGetCurrent() * 1000.0) // in ms
+    @"timestamp": @([location.timestamp timeIntervalSince1970] * 1000) // in ms
   };
 
   // Send event
@@ -278,6 +282,7 @@ RCT_EXPORT_METHOD(getCurrentPosition:(NSDictionary *)optionsJSON
   // Fire all queued callbacks
   for (RCTLocationRequest *request in _pendingRequests) {
     request.successBlock(@[_lastLocationEvent]);
+    [request.timeoutTimer invalidate];
   }
   [_pendingRequests removeAllObjects];
 
@@ -286,14 +291,17 @@ RCT_EXPORT_METHOD(getCurrentPosition:(NSDictionary *)optionsJSON
     [_locationManager stopUpdatingLocation];
   }
 
-  // Reset location accuracy
-  _locationManager.desiredAccuracy = RCT_DEFAULT_LOCATION_ACCURACY;
+  // Reset location accuracy if desiredAccuracy is changed.
+  // Otherwise update accuracy will force triggering didUpdateLocations, watchPosition would keeping receiving location updates, even there's no location changes.
+  if (ABS(_locationManager.desiredAccuracy - RCT_DEFAULT_LOCATION_ACCURACY) > 0.000001) {
+    _locationManager.desiredAccuracy = RCT_DEFAULT_LOCATION_ACCURACY;
+  }
 }
 
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error
 {
   // Check error type
-  NSDictionary *jsError = nil;
+  NSDictionary<NSString *, id> *jsError = nil;
   switch (error.code) {
     case kCLErrorDenied:
       jsError = RCTPositionError(RCTPositionErrorDenied, nil);
@@ -316,17 +324,22 @@ RCT_EXPORT_METHOD(getCurrentPosition:(NSDictionary *)optionsJSON
   // Fire all queued error callbacks
   for (RCTLocationRequest *request in _pendingRequests) {
     request.errorBlock(@[jsError]);
+    [request.timeoutTimer invalidate];
   }
   [_pendingRequests removeAllObjects];
 
-  // Reset location accuracy
-  _locationManager.desiredAccuracy = RCT_DEFAULT_LOCATION_ACCURACY;
+  // Reset location accuracy if desiredAccuracy is changed.
+  // Otherwise update accuracy will force triggering didUpdateLocations, watchPosition would keeping receiving location updates, even there's no location changes.
+  if (ABS(_locationManager.desiredAccuracy - RCT_DEFAULT_LOCATION_ACCURACY) > 0.000001) {
+    _locationManager.desiredAccuracy = RCT_DEFAULT_LOCATION_ACCURACY;
+  }
 }
 
 - (void)checkLocationConfig
 {
-  if (![[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSLocationWhenInUseUsageDescription"]) {
-    RCTLogError(@"NSLocationWhenInUseUsageDescription key must be present in Info.plist to use geolocation.");
+  if (!([[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSLocationWhenInUseUsageDescription"] ||
+    [[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSLocationAlwaysUsageDescription"])) {
+    RCTLogError(@"Either NSLocationWhenInUseUsageDescription or NSLocationAlwaysUsageDescription key must be present in Info.plist to use geolocation.");
   }
 }
 

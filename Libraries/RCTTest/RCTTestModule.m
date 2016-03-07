@@ -11,53 +11,70 @@
 
 #import "FBSnapshotTestController.h"
 #import "RCTAssert.h"
+#import "RCTEventDispatcher.h"
 #import "RCTLog.h"
+#import "RCTUIManager.h"
 
 @implementation RCTTestModule
 {
-  __weak FBSnapshotTestController *_snapshotController;
-  __weak UIView *_view;
-  NSMutableDictionary *_snapshotCounter;
+  NSMutableDictionary<NSString *, NSString *> *_snapshotCounter;
 }
+
+@synthesize bridge = _bridge;
 
 RCT_EXPORT_MODULE()
 
-- (instancetype)initWithSnapshotController:(FBSnapshotTestController *)controller view:(UIView *)view
+- (dispatch_queue_t)methodQueue
 {
-  if ((self = [super init])) {
-    _snapshotController = controller;
-    _view = view;
-    _snapshotCounter = [NSMutableDictionary new];
-  }
-  return self;
+  return _bridge.uiManager.methodQueue;
 }
 
 RCT_EXPORT_METHOD(verifySnapshot:(RCTResponseSenderBlock)callback)
 {
-  if (!_snapshotController) {
-    RCTLogWarn(@"No snapshot controller configured.");
-    callback(@[]);
-    return;
-  }
+  RCTAssert(_controller != nil, @"No snapshot controller configured.");
 
-  dispatch_async(dispatch_get_main_queue(), ^{
+  [_bridge.uiManager addUIBlock:^(RCTUIManager *uiManager, NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+
     NSString *testName = NSStringFromSelector(_testSelector);
-    _snapshotCounter[testName] = @([_snapshotCounter[testName] integerValue] + 1);
+    if (!_snapshotCounter) {
+      _snapshotCounter = [NSMutableDictionary new];
+    }
+    _snapshotCounter[testName] = (@([_snapshotCounter[testName] integerValue] + 1)).stringValue;
+
     NSError *error = nil;
-    BOOL success = [_snapshotController compareSnapshotOfView:_view
-                                                     selector:_testSelector
-                                                   identifier:[_snapshotCounter[testName] stringValue]
-                                                        error:&error];
-    RCTAssert(success, @"Snapshot comparison failed: %@", error);
-    callback(@[]);
-  });
+    BOOL success = [_controller compareSnapshotOfView:_view
+                                             selector:_testSelector
+                                           identifier:_snapshotCounter[testName]
+                                                error:&error];
+    callback(@[@(success)]);
+  }];
+}
+
+RCT_EXPORT_METHOD(sendAppEvent:(NSString *)name body:(nullable id)body)
+{
+  [_bridge.eventDispatcher sendAppEventWithName:name body:body];
+}
+
+RCT_REMAP_METHOD(shouldResolve, shouldResolve_resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+{
+  resolve(@1);
+}
+
+RCT_REMAP_METHOD(shouldReject, shouldReject_resolve:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseRejectBlock)reject)
+{
+  reject(nil, nil, nil);
 }
 
 RCT_EXPORT_METHOD(markTestCompleted)
 {
-  dispatch_async(dispatch_get_main_queue(), ^{
-    _done = YES;
-  });
+  [self markTestPassed:YES];
+}
+
+RCT_EXPORT_METHOD(markTestPassed:(BOOL)success)
+{
+  [_bridge.uiManager addUIBlock:^(__unused RCTUIManager *uiManager, __unused NSDictionary<NSNumber *, UIView *> *viewRegistry) {
+    _status = success ? RCTTestStatusPassed : RCTTestStatusFailed;
+  }];
 }
 
 @end

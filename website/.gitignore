@@ -1,2 +1,4 @@
 src/react-native/docs/**
 core/metadata.js
+*.log
+/build/

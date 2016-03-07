@@ -15,11 +15,12 @@
  */
 'use strict';
 
-var React = require('react-native');
-var ViewExample = require('./ViewExample');
-var createExamplePage = require('./createExamplePage');
-var {
-  PixelRatio,
+const React = require('react-native');
+const ViewExample = require('./ViewExample');
+const createExamplePage = require('./createExamplePage');
+const {
+  AlertIOS,
+  NavigatorIOS,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,8 +28,7 @@ var {
   View,
 } = React;
 
-var EmptyPage = React.createClass({
-
+const EmptyPage = React.createClass({
   render: function() {
     return (
       <View style={styles.emptyPage}>
@@ -38,41 +38,24 @@ var EmptyPage = React.createClass({
       </View>
     );
   },
-
 });
 
-var NavigatorIOSExample = React.createClass({
-
-  statics: {
-    title: '<NavigatorIOS>',
-    description: 'iOS navigation capabilities',
-  },
-
+const NavigatorIOSExamplePage = React.createClass({
   render: function() {
     var recurseTitle = 'Recurse Navigation';
-    if (!this.props.topExampleRoute) {
+    if (!this.props.depth || this.props.depth === 1) {
       recurseTitle += ' - more examples here';
     }
     return (
       <ScrollView style={styles.list}>
         <View style={styles.line}/>
         <View style={styles.group}>
-          <View style={styles.row}>
-            <Text style={styles.rowNote}>
-              See &lt;UIExplorerApp&gt; for top-level usage.
-            </Text>
-          </View>
-        </View>
-        <View style={styles.line}/>
-        <View style={styles.groupSpace}/>
-        <View style={styles.line}/>
-        <View style={styles.group}>
           {this._renderRow(recurseTitle, () => {
             this.props.navigator.push({
               title: NavigatorIOSExample.title,
-              component: NavigatorIOSExample,
+              component: NavigatorIOSExamplePage,
               backButtonTitle: 'Custom Back',
-              passProps: {topExampleRoute: this.props.topExampleRoute || this.props.route},
+              passProps: {depth: this.props.depth ? this.props.depth + 1 : 1},
             });
           })}
           {this._renderRow('Push View Example', () => {
@@ -92,46 +75,69 @@ var NavigatorIOSExample = React.createClass({
               }
             });
           })}
+          {this._renderRow('Custom Left & Right Icons', () => {
+            this.props.navigator.push({
+              title: NavigatorIOSExample.title,
+              component: EmptyPage,
+              leftButtonTitle: 'Custom Left',
+              onLeftButtonPress: () => this.props.navigator.pop(),
+              rightButtonIcon: require('image!NavBarButtonPlus'),
+              onRightButtonPress: () => {
+                AlertIOS.alert(
+                  'Bar Button Action',
+                  'Recognized a tap on the bar button icon',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => console.log('Tapped OK'),
+                    },
+                  ]
+                );
+              },
+              passProps: {
+                text: 'This page has an icon for the right button in the nav bar',
+              }
+            });
+          })}
           {this._renderRow('Pop', () => {
             this.props.navigator.pop();
           })}
           {this._renderRow('Pop to top', () => {
             this.props.navigator.popToTop();
           })}
-          {this._renderRow('Replace here', () => {
-            var prevRoute = this.props.route;
-            this.props.navigator.replace({
-              title: 'New Navigation',
-              component: EmptyPage,
-              rightButtonTitle: 'Undo',
-              onRightButtonPress: () => this.props.navigator.replace(prevRoute),
-              passProps: {
-                text: 'The component is replaced, but there is currently no ' +
-                  'way to change the right button or title of the current route',
-              }
-            });
-          })}
+          {this._renderReplace()}
           {this._renderReplacePrevious()}
           {this._renderReplacePreviousAndPop()}
-          {this._renderPopToTopNavExample()}
+          {this._renderRow('Exit NavigatorIOS Example', this.props.onExampleExit)}
         </View>
         <View style={styles.line}/>
       </ScrollView>
     );
   },
 
-  _renderPopToTopNavExample: function() {
-    if (!this.props.topExampleRoute) {
+  _renderReplace: function() {
+    if (!this.props.depth) {
+      // this is to avoid replacing the top of the stack
       return null;
     }
-    return this._renderRow('Pop to top NavigatorIOSExample', () => {
-      this.props.navigator.popToRoute(this.props.topExampleRoute);
+    return this._renderRow('Replace here', () => {
+      var prevRoute = this.props.route;
+      this.props.navigator.replace({
+        title: 'New Navigation',
+        component: EmptyPage,
+        rightButtonTitle: 'Undo',
+        onRightButtonPress: () => this.props.navigator.replace(prevRoute),
+        passProps: {
+          text: 'The component is replaced, but there is currently no ' +
+            'way to change the right button or title of the current route',
+        }
+      });
     });
   },
 
   _renderReplacePrevious: function() {
-    if (!this.props.topExampleRoute) {
-      // this is to avoid replacing the UIExplorerList at the top of the stack
+    if (!this.props.depth || this.props.depth < 2) {
+      // this is to avoid replacing the top of the stack
       return null;
     }
     return this._renderRow('Replace previous', () => {
@@ -147,8 +153,8 @@ var NavigatorIOSExample = React.createClass({
   },
 
   _renderReplacePreviousAndPop: function() {
-    if (!this.props.topExampleRoute) {
-      // this is to avoid replacing the UIExplorerList at the top of the stack
+    if (!this.props.depth || this.props.depth < 2) {
+      // this is to avoid replacing the top of the stack
       return null;
     }
     return this._renderRow('Replace previous and pop', () => {
@@ -179,7 +185,34 @@ var NavigatorIOSExample = React.createClass({
   },
 });
 
-var styles = StyleSheet.create({
+const NavigatorIOSExample = React.createClass({
+  statics: {
+    title: '<NavigatorIOS>',
+    description: 'iOS navigation capabilities',
+    external: true,
+  },
+
+  render: function() {
+    const {onExampleExit} = this.props;
+    return (
+      <NavigatorIOS
+        style={styles.container}
+        initialRoute={{
+          title: NavigatorIOSExample.title,
+          component: NavigatorIOSExamplePage,
+          passProps: {onExampleExit},
+        }}
+        itemWrapperStyle={styles.itemWrapper}
+        tintColor="#008888"
+      />
+    );
+  },
+});
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   customWrapperStyle: {
     backgroundColor: '#bbdddd',
   },
@@ -202,7 +235,7 @@ var styles = StyleSheet.create({
   },
   line: {
     backgroundColor: '#bbbbbb',
-    height: 1 / PixelRatio.get(),
+    height: StyleSheet.hairlineWidth,
   },
   row: {
     backgroundColor: 'white',
@@ -211,7 +244,7 @@ var styles = StyleSheet.create({
     paddingVertical: 15,
   },
   separator: {
-    height: 1 / PixelRatio.get(),
+    height: StyleSheet.hairlineWidth,
     backgroundColor: '#bbbbbb',
     marginLeft: 15,
   },

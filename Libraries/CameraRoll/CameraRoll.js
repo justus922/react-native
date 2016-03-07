@@ -17,7 +17,7 @@ var RCTCameraRollManager = require('NativeModules').CameraRollManager;
 var createStrictShapeTypeChecker = require('createStrictShapeTypeChecker');
 var deepFreezeAndThrowOnMutationInDev =
   require('deepFreezeAndThrowOnMutationInDev');
-var invariant = require('invariant');
+var invariant = require('fbjs/lib/invariant');
 
 var GROUP_TYPES_OPTIONS = [
   'Album',
@@ -29,8 +29,15 @@ var GROUP_TYPES_OPTIONS = [
   'SavedPhotos', // default
 ];
 
+var ASSET_TYPE_OPTIONS = [
+  'All',
+  'Videos',
+  'Photos', // default
+];
+
 // Flow treats Object and Array as disjoint types, currently.
 deepFreezeAndThrowOnMutationInDev((GROUP_TYPES_OPTIONS: any));
+deepFreezeAndThrowOnMutationInDev((ASSET_TYPE_OPTIONS: any));
 
 /**
  * Shape of the param arg for the `getPhotos` function.
@@ -58,6 +65,16 @@ var getPhotosParamChecker = createStrictShapeTypeChecker({
    * titles.
    */
   groupName: ReactPropTypes.string,
+
+  /**
+  * Specifies filter on asset type
+  */
+  assetType: ReactPropTypes.oneOf(ASSET_TYPE_OPTIONS),
+
+  /**
+   * Filter by mimetype (e.g. image/jpeg).
+   */
+  mimeTypes: ReactPropTypes.arrayOf(ReactPropTypes.string),
 });
 
 /**
@@ -91,66 +108,77 @@ var getPhotosReturnChecker = createStrictShapeTypeChecker({
   }).isRequired,
 });
 
+/**
+ * `CameraRoll` provides access to the local camera roll / gallery.
+ */
 class CameraRoll {
+
+  static GroupTypesOptions: Array<string>;
+  static AssetTypeOptions: Array<string>;
   /**
-   * Saves the image with tag `tag` to the camera roll.
+   * Saves the image to the camera roll / gallery.
    *
-   * @param {string} tag - Can be any of the three kinds of tags we accept:
-   *                       1. URL
-   *                       2. assets-library tag
-   *                       3. tag returned from storing an image in memory
+   * On Android, the tag is a local URI, such as `"file:///sdcard/img.png"`.
+   *
+   * On iOS, the tag can be one of the following:
+   *
+   *   - local URI
+   *   - assets-library tag
+   *   - a tag not matching any of the above, which means the image data will
+   * be stored in memory (and consume memory as long as the process is alive)
+   *
+   * Returns a Promise which when resolved will be passed the new URI.
    */
-  static saveImageWithTag(tag, successCallback, errorCallback) {
+  static saveImageWithTag(tag) {
     invariant(
       typeof tag === 'string',
       'CameraRoll.saveImageWithTag tag must be a valid string.'
     );
-    RCTCameraRollManager.saveImageWithTag(
-      tag,
-      (imageTag) => {
-        successCallback && successCallback(imageTag);
-      },
-      (errorMessage) => {
-        errorCallback && errorCallback(errorMessage);
-      });
+    if (arguments.length > 1) {
+      console.warn("CameraRoll.saveImageWithTag(tag, success, error) is deprecated.  Use the returned Promise instead");
+      let successCallback = arguments[1];
+      let errorCallback = arguments[2] || ( () => {} );
+      RCTCameraRollManager.saveImageWithTag(tag).then(successCallback, errorCallback);
+      return;
+    }
+    return RCTCameraRollManager.saveImageWithTag(tag);
   }
 
   /**
-   *  Invokes `callback` with photo identifier objects from the local camera
-   *  roll of the device matching shape defined by `getPhotosReturnChecker`.
+   * Returns a Promise with photo identifier objects from the local camera
+   * roll of the device matching shape defined by `getPhotosReturnChecker`.
    *
-   *  @param {object} params - See `getPhotosParamChecker`.
-   *  @param {function} callback - Invoked with arg of shape defined by
-   *    `getPhotosReturnChecker` on success.
-   *  @param {function} errorCallback - Invoked with error message on error.
+   * @param {object} params See `getPhotosParamChecker`.
+   *
+   * Returns a Promise which when resolved will be of shape `getPhotosReturnChecker`.
    */
-  static getPhotos(params, callback, errorCallback) {
-    var metaCallback = callback;
+  static getPhotos(params) {
     if (__DEV__) {
       getPhotosParamChecker({params}, 'params', 'CameraRoll.getPhotos');
-      invariant(
-        typeof callback === 'function',
-        'CameraRoll.getPhotos callback must be a valid function.'
-      );
-      invariant(
-        typeof errorCallback === 'function',
-        'CameraRoll.getPhotos errorCallback must be a valid function.'
-      );
     }
-    if (__DEV__) {
-      metaCallback = (response) => {
-        getPhotosReturnChecker(
-          {response},
-          'response',
-          'CameraRoll.getPhotos callback'
-        );
-        callback(response);
-      };
+    if (arguments.length > 1) {
+      console.warn("CameraRoll.getPhotos(tag, success, error) is deprecated.  Use the returned Promise instead");
+      let successCallback = arguments[1];
+      if (__DEV__) {
+        let callback = arguments[1];
+        successCallback = (response) => {
+          getPhotosReturnChecker(
+            {response},
+            'response',
+            'CameraRoll.getPhotos callback'
+          );
+          callback(response);
+        };
+      }
+      let errorCallback = arguments[2] || ( () => {} );
+      RCTCameraRollManager.getPhotos(params).then(successCallback, errorCallback);
     }
-    RCTCameraRollManager.getPhotos(params, metaCallback, errorCallback);
+    // TODO: Add the __DEV__ check back in to verify the Promise result
+    return RCTCameraRollManager.getPhotos(params);
   }
 }
 
 CameraRoll.GroupTypesOptions = GROUP_TYPES_OPTIONS;
+CameraRoll.AssetTypeOptions = ASSET_TYPE_OPTIONS;
 
 module.exports = CameraRoll;

@@ -18,7 +18,6 @@
 var React = require('react-native');
 var {
   Image,
-  PixelRatio,
   ScrollView,
   StyleSheet,
   Text,
@@ -34,6 +33,9 @@ var MovieScreen = React.createClass({
     return (
       <ScrollView contentContainerStyle={styles.contentContainer}>
         <View style={styles.mainSection}>
+          {/* $FlowIssue #7363964 - There's a bug in Flow where you cannot
+            * omit a property or set it to undefined if it's inside a shape,
+            * even if it isn't required */}
           <Image
             source={getImageSource(this.props.movie, 'det')}
             style={styles.detailsImage}
@@ -149,7 +151,7 @@ var styles = StyleSheet.create({
   },
   separator: {
     backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    height: 1 / PixelRatio.get(),
+    height: StyleSheet.hairlineWidth,
     marginVertical: 10,
   },
   castTitle: {

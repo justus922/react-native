@@ -24,79 +24,147 @@ var {
   AlertIOS,
 } = React;
 
+var { SimpleAlertExampleBlock } = require('./AlertExample');
+
 exports.framework = 'React';
 exports.title = 'AlertIOS';
 exports.description = 'iOS alerts and action sheets';
 exports.examples = [{
   title: 'Alerts',
   render() {
+    return <SimpleAlertExampleBlock />;
+  }
+},
+{
+  title: 'Prompt Options',
+  render(): ReactElement {
+    return <PromptOptions />;
+  }
+},
+{
+  title: 'Prompt Types',
+  render() {
     return (
       <View>
-        <TouchableHighlight style={styles.wrapper}
-          onPress={() => AlertIOS.alert(
-            'Foo Title',
-            'My Alert Msg'
-          )}>
+        <TouchableHighlight
+          style={styles.wrapper}
+          onPress={() => AlertIOS.prompt('Plain Text Entry')}>
+
           <View style={styles.button}>
-            <Text>Alert with message and default button</Text>
+            <Text>
+              plain-text
+            </Text>
+          </View>
+
+        </TouchableHighlight>
+        <TouchableHighlight
+          style={styles.wrapper}
+          onPress={() => AlertIOS.prompt('Secure Text', null, null, 'secure-text')}>
+
+          <View style={styles.button}>
+            <Text>
+              secure-text
+            </Text>
+          </View>
+
+        </TouchableHighlight>
+        <TouchableHighlight
+          style={styles.wrapper}
+          onPress={() => AlertIOS.prompt('Login & Password', null, null, 'login-password')}>
+
+          <View style={styles.button}>
+            <Text>
+              login-password
+            </Text>
+          </View>
+
+        </TouchableHighlight>
+      </View>
+    );
+  }
+}];
+
+class PromptOptions extends React.Component {
+  state: any;
+  customButtons: Array<Object>;
+
+  constructor(props) {
+    super(props);
+
+    // $FlowFixMe this seems to be a Flow bug, `saveResponse` is defined below
+    this.saveResponse = this.saveResponse.bind(this);
+
+    this.customButtons = [{
+      text: 'Custom OK',
+      onPress: this.saveResponse
+    }, {
+      text: 'Custom Cancel',
+      style: 'cancel',
+    }];
+
+    this.state = {
+      promptValue: undefined,
+    };
+  }
+
+  render() {
+    return (
+      <View>
+        <Text style={{marginBottom: 10}}>
+          <Text style={{fontWeight: 'bold'}}>Prompt value:</Text> {this.state.promptValue}
+        </Text>
+
+        <TouchableHighlight
+          style={styles.wrapper}
+          onPress={() => AlertIOS.prompt('Type a value', null, this.saveResponse)}>
+
+          <View style={styles.button}>
+            <Text>
+              prompt with title & callback
+            </Text>
           </View>
         </TouchableHighlight>
-        <TouchableHighlight style={styles.wrapper}
-          onPress={() => AlertIOS.alert(
-            null,
-            null,
-            [
-              {text: 'Button', onPress: () => console.log('Button Pressed!')},
-            ]
-          )}>
+
+        <TouchableHighlight
+          style={styles.wrapper}
+          onPress={() => AlertIOS.prompt('Type a value', null, this.customButtons)}>
+
           <View style={styles.button}>
-            <Text>Alert with only one button</Text>
+            <Text>
+              prompt with title & custom buttons
+            </Text>
           </View>
         </TouchableHighlight>
-        <TouchableHighlight style={styles.wrapper}
-          onPress={() => AlertIOS.alert(
-            'Foo Title',
-            'My Alert Msg',
-            [
-              {text: 'Foo', onPress: () => console.log('Foo Pressed!')},
-              {text: 'Bar', onPress: () => console.log('Bar Pressed!')},
-            ]
-          )}>
+
+        <TouchableHighlight
+          style={styles.wrapper}
+          onPress={() => AlertIOS.prompt('Type a value', null, this.saveResponse, undefined, 'Default value')}>
+
           <View style={styles.button}>
-            <Text>Alert with two buttons</Text>
+            <Text>
+              prompt with title, callback & default value
+            </Text>
           </View>
         </TouchableHighlight>
-        <TouchableHighlight style={styles.wrapper}
-          onPress={() => AlertIOS.alert(
-            'Foo Title',
-            null,
-            [
-              {text: 'Foo', onPress: () => console.log('Foo Pressed!')},
-              {text: 'Bar', onPress: () => console.log('Bar Pressed!')},
-              {text: 'Baz', onPress: () => console.log('Baz Pressed!')},
-            ]
-          )}>
+
+        <TouchableHighlight
+          style={styles.wrapper}
+          onPress={() => AlertIOS.prompt('Type a value', null, this.customButtons, 'login-password', 'admin@site.com')}>
+
           <View style={styles.button}>
-            <Text>Alert with 3 buttons</Text>
-          </View>
-        </TouchableHighlight>
-        <TouchableHighlight style={styles.wrapper}
-          onPress={() => AlertIOS.alert(
-            'Foo Title',
-            'My Alert Msg',
-            '..............'.split('').map((dot, index) => ({
-              text: 'Button ' + index,
-              onPress: () => console.log('Pressed ' + index)
-            }))
-          )}>
-          <View style={styles.button}>
-            <Text>Alert with too many buttons</Text>
+            <Text>
+              prompt with title, custom buttons, login/password & default value
+            </Text>
           </View>
         </TouchableHighlight>
       </View>
     );
-  },
-}];
+  }
+
+  saveResponse(promptValue) {
+    this.setState({ promptValue: JSON.stringify(promptValue) });
+  }
+}
 
 var styles = StyleSheet.create({
   wrapper: {

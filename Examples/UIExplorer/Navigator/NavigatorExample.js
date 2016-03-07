@@ -10,13 +10,14 @@
  * FACEBOOK BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
  * AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-*/
+ *
+ * @providesModule NavigatorExample
+ */
 'use strict';
 
 var React = require('react-native');
 var {
   Navigator,
-  PixelRatio,
   ScrollView,
   StyleSheet,
   Text,
@@ -132,8 +133,9 @@ var TabBarExample = React.createClass({
   render: function() {
     return (
       <Navigator
+        ref={this._setNavigatorRef}
         style={styles.container}
-        initialRoute={{ message: "First Scene", }}
+        initialRoute={{ message: 'First Scene', }}
         renderScene={this.renderScene}
         configureScene={(route) => {
           if (route.sceneConfig) {
@@ -145,6 +147,34 @@ var TabBarExample = React.createClass({
     );
   },
 
+
+  componentWillUnmount: function() {
+    this._listeners && this._listeners.forEach(listener => listener.remove());
+  },
+
+  _setNavigatorRef: function(navigator) {
+    if (navigator !== this._navigator) {
+      this._navigator = navigator;
+
+      if (navigator) {
+        var callback = (event) => {
+          console.log(
+            `TabBarExample: event ${event.type}`,
+            {
+              route: JSON.stringify(event.data.route),
+              target: event.target,
+              type: event.type,
+            }
+          );
+        };
+        // Observe focus change events from the owner.
+        this._listeners = [
+          navigator.navigationContext.addListener('willfocus', callback),
+          navigator.navigationContext.addListener('didfocus', callback),
+        ];
+      }
+    }
+  },
 });
 
 var styles = StyleSheet.create({
@@ -161,7 +191,7 @@ var styles = StyleSheet.create({
   button: {
     backgroundColor: 'white',
     padding: 15,
-    borderBottomWidth: 1 / PixelRatio.get(),
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#CDCDCD',
   },
   buttonText: {
@@ -174,5 +204,7 @@ var styles = StyleSheet.create({
     backgroundColor: '#EAEAEA',
   }
 });
+
+TabBarExample.external = true;
 
 module.exports = TabBarExample;

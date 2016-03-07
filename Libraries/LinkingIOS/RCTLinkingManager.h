@@ -9,7 +9,7 @@
 
 #import <UIKit/UIKit.h>
 
-#import "../../React/Base/RCTBridgeModule.h"
+#import "RCTBridgeModule.h"
 
 @interface RCTLinkingManager : NSObject <RCTBridgeModule>
 
@@ -17,5 +17,9 @@
             openURL:(NSURL *)URL
   sourceApplication:(NSString *)sourceApplication
          annotation:(id)annotation;
+
++ (BOOL)application:(UIApplication *)application
+continueUserActivity:(NSUserActivity *)userActivity
+  restorationHandler:(void (^)(NSArray *))restorationHandler;
 
 @end

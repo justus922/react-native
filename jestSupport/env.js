@@ -8,6 +8,14 @@
  */
 'use strict';
 
-global.setImmediate = global.setImmediate || function(fn) {
-  return setTimeout(fn, 0);
+require('../packager/react-packager/src/Resolver/polyfills/babelHelpers.js');
+global.__DEV__ = true;
+global.__fbBatchedBridgeConfig = {
+  remoteModuleConfig: [],
+  localModulesConfig: [],
 };
+
+global.Promise = require('promise');
+global.regeneratorRuntime = require.requireActual('regenerator/runtime');
+
+jest.setMock('ErrorUtils', require('ErrorUtils'));
